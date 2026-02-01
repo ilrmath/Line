@@ -18,6 +18,16 @@
         input[type="text"], input[type="number"] { width: 80%; padding: 5px; border: 1px solid #ccc; border-radius: 4px; text-align: center; }
         input:focus { border-color: #2ecc71; outline: none; background-color: #f0fbff; }
 
+        /* ★追加：selectの見た目をinputに寄せる */
+        select {
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fff;
+            font-size: 14px;
+        }
+        select:focus { border-color: #2ecc71; outline: none; background-color: #f0fbff; }
+
         /* ボタン */
         button { border: none; padding: 8px 16px; font-size: 14px; border-radius: 4px; cursor: pointer; margin-top: 5px; transition: background 0.3s; }
         .btn-calc { background-color: #2ecc71; color: white; font-size: 16px; padding: 10px 20px; }
@@ -94,7 +104,7 @@
     </div>
 
     <div class="container">
-        <h2>Step 1: データ設定</h2>
+        <h2>Step 1: データ設定<br>(事前調査し、各品目を注文する客の数を調査します。)</h2>
         <table id="dataTable" class="data-table">
             <thead>
                 <tr>
@@ -141,9 +151,27 @@
     </div>
 
     <div class="container">
-        <h2>Step 2 & 3: シミュレーションと可視化</h2>
+        <h2>Step 2 & 3: シミュレーションと可視化<br>(0≦乱数🎲<1を利用し, 上の表に当てはめて客の注文を決め, 待ち行列シミュレート)</h2>
+
         <div style="display: flex; align-items: center; gap: 15px;">
             <label>来店人数: <input type="number" id="simCount" value="10" style="width: 60px;"></label>
+
+            <!-- ★追加：来店間隔プルダウン（ボタンの左） -->
+            <label>来店間隔:
+                <select id="arrivalInterval">
+                    <option value="1">1分</option>
+                    <option value="2">2分</option>
+                    <option value="3">3分</option>
+                    <option value="4">4分</option>
+                    <option value="5">5分</option>
+                    <option value="6">6分</option>
+                    <option value="7">7分</option>
+                    <option value="8">8分</option>
+                    <option value="9">9分</option>
+                    <option value="random">ランダム(1〜9)分</option>
+                </select>
+            </label>
+
             <button class="btn-calc" onclick="runSimulation()">シミュレーション実行</button>
         </div>
         
@@ -160,7 +188,16 @@
                 <summary>詳細な数値データを見る</summary>
                 <table id="simTable" class="data-table">
                     <thead>
-                        <tr><th>客番</th><th>乱数</th><th>注文</th><th>提供開始</th><th>提供終了</th><th>待ち時間</th></tr>
+                        <!-- ★変更：来店時刻列を追加 -->
+                        <tr>
+                            <th>客番</th>
+                            <th>来店時刻</th>
+                            <th>乱数</th>
+                            <th>注文</th>
+                            <th>提供開始</th>
+                            <th>提供終了</th>
+                            <th>待ち時間</th>
+                        </tr>
                     </thead>
                     <tbody></tbody>
                 </table>
@@ -233,6 +270,12 @@
         function runSimulation() {
             calculateTable();
             const count = parseInt(document.getElementById('simCount').value) || 10;
+
+            // ★追加：来店間隔の取得
+            const intervalMode = (document.getElementById('arrivalInterval')?.value) || "1";
+            const isRandomInterval = intervalMode === "random";
+            const fixedInterval = parseInt(intervalMode, 10) || 1;
+
             const tbody = document.querySelector('#simTable tbody');
             tbody.innerHTML = '';
             
@@ -240,8 +283,17 @@
             let simResults = [];
             let maxWait = { duration: 0, id: 0 };
 
+            // ★変更：到着時刻を「来店間隔」で進める
+            let arrivalTime = 0;
+
             for (let i = 0; i < count; i++) {
-                const arrivalTime = i; 
+                // 1人目は0分、2人目以降は間隔分だけ進める
+                let arrivalDelta = 0;
+                if (i > 0) {
+                    arrivalDelta = isRandomInterval ? (1 + Math.floor(Math.random() * 9)) : fixedInterval;
+                    arrivalTime += arrivalDelta;
+                }
+
                 const rand = Math.random();
                 let sel = items.find(item => rand >= item.probMin && rand < item.probMax) || items[items.length - 1];
 
@@ -251,8 +303,30 @@
                 
                 if (waitDuration > maxWait.duration) { maxWait = { duration: waitDuration, id: i+1 }; }
 
-                simResults.push({ id: i + 1, arrival: arrivalTime, start: startTime, end: endTime, item: sel.name, waitDuration, rand, serviceTime: sel.time });
-                tbody.innerHTML += `<tr><td>${i+1}</td><td>${rand.toFixed(4)}</td><td>${sel.name}</td><td>${startTime}</td><td>${endTime}</td><td>${waitDuration}分</td></tr>`;
+                simResults.push({
+                    id: i + 1,
+                    arrival: arrivalTime,
+                    arrivalDelta,
+                    start: startTime,
+                    end: endTime,
+                    item: sel.name,
+                    waitDuration,
+                    rand,
+                    serviceTime: sel.time
+                });
+
+                // ★変更：詳細表に来店時刻列を追加
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${i+1}</td>
+                        <td>${arrivalTime}</td>
+                        <td>${rand.toFixed(4)}</td>
+                        <td>${sel.name}</td>
+                        <td>${startTime}</td>
+                        <td>${endTime}</td>
+                        <td>${waitDuration}分</td>
+                    </tr>`;
+
                 prevEndTime = endTime;
             }
 
@@ -279,10 +353,17 @@
             results.forEach(res => {
                 const tr = document.createElement('tr');
                 
-                // ホバーイベントの設定（ご要望通り表示順を変更）
+                // ホバーイベントの設定
                 tr.onmouseenter = (e) => {
                     tooltip.style.display = 'block';
-                    tooltip.innerHTML = `発生乱数: ${res.rand.toFixed(4)}<br>対応する選択: <strong>${res.item}</strong><br>客番号: ${res.id}<br>提供時間: ${res.serviceTime}分<br>待ち時間: ${res.waitDuration}分`;
+                    tooltip.innerHTML =
+                        `来店時刻: ${res.arrival}分` +
+                        (res.id > 1 ? `<br>前の客からの間隔: ${res.arrivalDelta}分` : `<br>前の客からの間隔: -`) +
+                        `<br>発生乱数: ${res.rand.toFixed(4)}` +
+                        `<br>対応する選択: <strong>${res.item}</strong>` +
+                        `<br>客番号: ${res.id}` +
+                        `<br>提供時間: ${res.serviceTime}分` +
+                        `<br>待ち時間: ${res.waitDuration}分`;
                 };
                 tr.onmousemove = (e) => {
                     tooltip.style.left = (e.clientX + 15) + 'px';
@@ -313,6 +394,7 @@
             }
             totalRow.innerHTML = totalHtml;
             tbody.appendChild(totalRow);
+
             table.appendChild(tbody);
             container.appendChild(table);
 
